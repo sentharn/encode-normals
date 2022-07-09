@@ -3,7 +3,7 @@
 
 _As seen on TV!_
 
-![Stylized Fur Image](assets/ru_comparison.jpg)
+![Stylized Fur Image](assets/ru_comparison_small.jpg)
 *image courtesy of [ruaidri @ furaffinity](https://furaffinity.net/user/ruaidri)*
 
 encode-normals is a small blender addon that copies the normals of a particle
@@ -53,7 +53,7 @@ and then subtract `0.5` by using Vector Math nodes in the shader editor
 1. Enable the `Render -> Lock Render` checkbox. This avoids crashes during viewport updates, but your viewport will not respond while rendering (ESC still works)
 2. Click on a mesh that you want to enable this feature on
 3. Under Mesh properties, enable `Particles Normals` via the checkbox. This will create the vc_normals vertex color group if it does not exist yet.
-4. Set up the shader using the node group above to use your encoded normals instead of generated normals.
+4. Set up the shader using the node group above to use your encoded normals instead of generated normals. Consider doing the same for the body shader (see [Limitations](#limitations))
 5. Click `Encode Normals` to manually encode normals for the current frame while doing viewport work.
 6. The addon will automatically encode normals every frame for you during render
 7. Click the `Ru Button`, which literally does nothing but looks cool
@@ -65,9 +65,13 @@ and then subtract `0.5` by using Vector Math nodes in the shader editor
 * Ru Button (does nothing)
 
 ## Limitations
-It does _not_ currently update per frame within the viewport, to avoid slowing
+The conversion process is not perfect; the normals are stored per-vertex and are interpolated between them, just like vertex colors. It's "close enough" for body fur, but if you really want to make sure everything matches, you should use the encoded normals on both the body and the fur shaders.
+
+The addon does _not_ currently update per frame within the viewport, to avoid slowing
 down the viewport for animation work. A button is available to manually update 
 the vertex color layer.
+
+This script will not instantly make your fur look like a top-tier furry 3d artist's work! This script only does the normal transfer. You'll still need to design a nice fur shader and base texture, make a good character model, light the scene well, etc etc.
 
 ## Known Issues
 
