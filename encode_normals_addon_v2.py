@@ -3,11 +3,11 @@ bl_info = {
     "author": "sentharn",
     "blender": (2, 90, 0),
     "category": "Mesh",
-    "version": (2, 0),
+    "version": (2, 1),
 }
 
 import bpy
-from mathutils import Vector
+from mathutils import Vector, Color
 from bpy.app.handlers import persistent
 
 # Sentharn's Normal Encoder
@@ -239,6 +239,10 @@ def encode_normals(ob, depsgraph):
                 orig_normal = normal.copy()
   
                 color = (normal * 0.5) + Vector((0.5,) * 3)
+                # shader editor only understands sRGB.
+                # thanks to Bobbe on Blender Community Discord for
+                # pointing me in this direction
+                color = Vector(Color(color).from_scene_linear_to_srgb())
                 color.resize_4d()
                 
                 # Copy to both original and new
