@@ -37,7 +37,7 @@ Vertex colors are stored as RGB values from [0, 1]. Normals are stored as
 `(normal * 0.5) + Vector3(0.5, 0.5, 0.5)`.
 
 To reverse this transformation, you need to multiply the values by `2`
-and then subtract `0.5` by using Vector Math nodes in the shader editor
+and then subtract `1.0` by using Vector Math nodes in the shader editor
 
 ![Shader image](assets/shader1.jpg)
 
