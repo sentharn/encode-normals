@@ -145,7 +145,12 @@ def valid_driver(obj, datapath):
     global generative_modifiers
     if 'modifiers' not in datapath: return False
     path_prop, path_attr = datapath.rsplit(".", 1) # get modifiers["name"]
-    modifier = obj.path_resolve(path_prop)
+    try:
+        modifier = obj.path_resolve(path_prop)
+    except ValueError:
+        print(' [!] Driver referencing modifier that no longer exists')
+        return False
+
     if modifier.type in generative_modifiers and path_attr in ('show_viewport', 'show_render'): return True
     return False
 
