@@ -3,7 +3,7 @@ bl_info = {
     "author": "sentharn",
     "blender": (2, 90, 0),
     "category": "Mesh",
-    "version": (2, 1),
+    "version": (2, 1, 1),
 }
 
 import bpy
@@ -45,14 +45,18 @@ class ParticleNormalTransferPanel(bpy.types.Panel):
         if context.scene.render.use_lock_interface:
             self.layout.use_property_split = True
             ob = context.object
-            #self.layout.prop(ob.data.normal_props, 'strength')
-            #self.layout.prop(ob.data.tension_props, 'bias')
-            #self.layout.prop(ob.data.tension_props, 'spread')
+
             row = self.layout.row()
+            row.enabled = ob.data.normal_props.enable
             row.prop_search(ob.data.normal_props, 'vcol', ob.data, 'vertex_colors')
             #row.operator('id.mask_refresh',text='',icon='FILE_REFRESH')
-            self.layout.prop(ob.data.normal_props, 'always_update')
+
             row = self.layout.row()
+            row.enabled = ob.data.normal_props.enable
+            row.prop(ob.data.normal_props, 'always_update')
+
+            row = self.layout.row()
+            row.enabled = ob.data.normal_props.enable
             row.operator(NormalUpdateNowOp.bl_idname)
             row.operator(SecretRuaidriOp.bl_idname)
         else:
