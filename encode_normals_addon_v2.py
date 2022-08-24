@@ -3,7 +3,7 @@ bl_info = {
     "author": "sentharn",
     "blender": (2, 90, 0),
     "category": "Mesh",
-    "version": (2, 1, '1e'),
+    "version": (2, 1, 2),
 }
 
 import bpy
@@ -26,7 +26,8 @@ generative_modifiers = ['ARRAY','BEVEL','BOOLEAN', 'BUILD', 'DECIMATE','EDGE_SPL
 
 class RENDER_OT_RenderEncodedAnimation(bpy.types.Operator):
     """ By Default there are side effects when using encoded normals and rendering from separate 
-    frame than the animation. This makes sure everything is rendered correctly. Runs frame_current = frame_start and then starts rendering animation
+    frame than the animation. This makes sure rigs do not explode during the deptree navigation
+    Runs frame_current = frame_start and then starts rendering animation
     """
 
     bl_label = "Render Animation (With Encoded Normals)"
@@ -64,9 +65,6 @@ class ParticleNormalTransferPanel(bpy.types.Panel):
         if context.scene.render.use_lock_interface:
             self.layout.use_property_split = True
             ob = context.object
-            #self.layout.prop(ob.data.normal_props, 'strength')
-            #self.layout.prop(ob.data.tension_props, 'bias')
-            #self.layout.prop(ob.data.tension_props, 'spread')
             row = self.layout.row()
             row.prop_search(ob.data.normal_props, 'vcol', ob.data, 'vertex_colors')
             #row.operator('id.mask_refresh',text='',icon='FILE_REFRESH')
@@ -179,7 +177,11 @@ def valid_driver(obj, datapath):
     global generative_modifiers
     if 'modifiers' not in datapath: return False
     path_prop, path_attr = datapath.rsplit(".", 1) # get modifiers["name"]
-    modifier = obj.path_resolve(path_prop)
+    try:
+        modifier = obj.path_resolve(path_prop)
+    except ValueError:
+        print(' [!] Driver referencing modifier that no longer exists')
+        return False
     if modifier.type in generative_modifiers and path_attr in ('show_viewport', 'show_render'): return True
     return False
 
@@ -263,7 +265,6 @@ def encode_normals(ob, depsgraph):
         eval_vertex_att = eval_mesh.vertex_colors[eval_mesh.normal_props.vcol]
         orig_vertex_att = orig_mesh.vertex_colors[orig_mesh.normal_props.vcol]
 
-        print("     [d] Going through polygons") #Long operation
         for poly in eval_mesh.polygons:
                 for loop_index in poly.loop_indices:
                     normal = eval_mesh.loops[loop_index].normal.copy()
@@ -293,8 +294,6 @@ def encode_normals(ob, depsgraph):
         del eval_vertex_att
         del orig_vertex_att
         
-      #  print(f" [n] Reset Vertex color to original")
-       # orig_mesh.vertex_colors.active = restore_vcol # Set active vertex color back to start.
     except Exception as e:
         print("  [w] Error Occurred while pre processing frame. ", e)
 
@@ -309,10 +308,10 @@ def encode_normals(ob, depsgraph):
 def frame_pre(scene):
     global skip, rendering, modifiers_off
     if skip or not rendering: return
+    # If use lock is NOT enabled, lets not even TRY
     if not bpy.context.scene.render.use_lock_interface: return
             
     # only update on render
-    print(rendering)
     print(' [-] frame_pre frame', bpy.context.scene.frame_current)
     # borrowed from mesh_tension addon
     modifiers_off = True
@@ -326,6 +325,7 @@ def frame_pre(scene):
 def frame_post(scene, depsgraph):
     global rendering, skip, modifiers_off
     if skip or not rendering: return
+    # If use lock is NOT enabled, lets not even TRY
     if not bpy.context.scene.render.use_lock_interface: return
 
     print(' [-] frame_post frame', bpy.context.scene.frame_current)
@@ -344,17 +344,6 @@ def frame_post(scene, depsgraph):
     modifiers_off = False
     print(' [-] Vertex colors updated on ', objs_list)
         
-    # sentharn: don't ask me why this is here
-    #if not rendering: return
-
-    # render needs this update
-    # we are forcing the depsgraph to update again now that we re-enabled the modifiers
-    
-    #skip = True
-    #print('frame_post starting second pass')       
-    #scene.frame_set(scene.frame_current)
-    #print('frame_post finished second pass')   
-    #skip = False
 
 def uppend(target, handler):
     if handler in target:
