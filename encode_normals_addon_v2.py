@@ -65,11 +65,18 @@ class ParticleNormalTransferPanel(bpy.types.Panel):
         if context.scene.render.use_lock_interface:
             self.layout.use_property_split = True
             ob = context.object
+
             row = self.layout.row()
+            row.enabled = ob.data.normal_props.enable
             row.prop_search(ob.data.normal_props, 'vcol', ob.data, 'vertex_colors')
             #row.operator('id.mask_refresh',text='',icon='FILE_REFRESH')
-            self.layout.prop(ob.data.normal_props, 'always_update')
+
             row = self.layout.row()
+            row.enabled = ob.data.normal_props.enable
+            row.prop(ob.data.normal_props, 'always_update')
+
+            row = self.layout.row()
+            row.enabled = ob.data.normal_props.enable
             row.operator(NormalUpdateNowOp.bl_idname)
             row.operator(SecretRuaidriOp.bl_idname)
         else:
@@ -249,57 +256,50 @@ def enable_modifiers(ob):
 
             
 def encode_normals(ob, depsgraph):
-    try:
-        print(" [-] Encoding normals for ", ob)
-        orig_obj = ob 
-        # get evaluated (modifiers applied) version of obj  
-        eval_obj = orig_obj.evaluated_get(depsgraph)
+    print(" [-] Encoding normals for ", ob)
+    orig_obj = ob 
+    # get evaluated (modifiers applied) version of obj  
+    eval_obj = orig_obj.evaluated_get(depsgraph)
 
-        orig_mesh = orig_obj.data
-        eval_mesh = eval_obj.data
+    orig_mesh = orig_obj.data
+    eval_mesh = eval_obj.data
 
-        # idk just do it ///  Allows access to  the loops - mal
-        eval_mesh.calc_normals_split()
+    # idk just do it ///  Allows access to  the loops - mal
+    eval_mesh.calc_normals_split()
 
-        # Mal:L Remove any possibility of active  changing during vertice selection, so lets  use direct references instead.
-        eval_vertex_att = eval_mesh.vertex_colors[eval_mesh.normal_props.vcol]
-        orig_vertex_att = orig_mesh.vertex_colors[orig_mesh.normal_props.vcol]
+    # Mal:L Remove any possibility of active  changing during vertice selection, so lets  use direct references instead.
+    eval_vertex_att = eval_mesh.vertex_colors[eval_mesh.normal_props.vcol]
+    orig_vertex_att = orig_mesh.vertex_colors[orig_mesh.normal_props.vcol]
 
-        for poly in eval_mesh.polygons:
-                for loop_index in poly.loop_indices:
-                    normal = eval_mesh.loops[loop_index].normal.copy()
-                    normal = eval_obj.matrix_world.to_3x3() @ normal # @ => dot product
-                    normal.normalize()
-                    color = (normal * 0.5) + Vector((0.5,) * 3)
-                    del normal # this is no longer used so delete for gc and stability later.
+    for poly in eval_mesh.polygons:
+            for loop_index in poly.loop_indices:
+                normal = eval_mesh.loops[loop_index].normal.copy()
+                normal = eval_obj.matrix_world.to_3x3() @ normal # @ => dot product
+                normal.normalize()
+                color = (normal * 0.5) + Vector((0.5,) * 3)
+                del normal # this is no longer used so delete for gc and stability later.
 
-                    # shader editor only understands sRGB.
-                    # thanks to Bobbe on Blender Community Discord for
-                    # pointing me in this direction
-                    color = Vector(Color(color).from_scene_linear_to_srgb())
-                    color.resize_4d()
-                    
-                    # Copy to both original and new
-                    eval_vertex_att.data[loop_index].color = color
-                    orig_vertex_att.data[loop_index].color = color
+                # shader editor only understands sRGB.
+                # thanks to Bobbe on Blender Community Discord for
+                # pointing me in this direction
+                color = Vector(Color(color).from_scene_linear_to_srgb())
+                color.resize_4d()
+                
+                # Copy to both original and new
+                eval_vertex_att.data[loop_index].color = color
+                orig_vertex_att.data[loop_index].color = color
 
-                    del color # this is no longer used so delete for gc and stability later.
+                del color # this is no longer used so delete for gc and stability later.
 
-        print(f" [n] orig object has {len(orig_mesh.polygons)} faces")
-        print(f" [n] eval object has {len(eval_mesh.polygons)} faces")
-        
-        # clean up
-        print(f" [n] Cleanup")
-        eval_mesh.free_normals_split()
-        del eval_vertex_att
-        del orig_vertex_att
-        
-    except Exception as e:
-        print("  [w] Error Occurred while pre processing frame. ", e)
+    print(f" [n] orig object has {len(orig_mesh.polygons)} faces")
+    print(f" [n] eval object has {len(eval_mesh.polygons)} faces")
+    
+    # clean up
+    print(f" [n] Cleanup")
+    eval_mesh.free_normals_split()
+    del eval_vertex_att
+    del orig_vertex_att
 
-    # malactus: We have done anywhere between a 100k or more calculations (Forexample: character of 50 000 vertices?, every thing is passed upto 4 times, so after 
-    # 200 k operations we may need to clear some stuff out. Lets make sure this frame is clear before we move on). After idk 400 frames, 
-    # this could technically add up to over 20 million floating variables until when ever blender does the operation for us...
     gc.collect() 
     print(f" [n] Garbage Collection complete")
 
