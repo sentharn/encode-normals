@@ -3,12 +3,14 @@ bl_info = {
     "author": "sentharn",
     "blender": (2, 90, 0),
     "category": "Mesh",
-    "version": (2, 1, 1),
+    "version": (2, 1, '1e'),
 }
 
 import bpy
 from mathutils import Vector, Color
 from bpy.app.handlers import persistent
+
+import gc
 
 # Sentharn's Normal Encoder
 # Based on the 'Mesh Tension' addon by Steve Miller
@@ -18,10 +20,27 @@ from bpy.app.handlers import persistent
 
 # globals
 rendering = False
+modifiers_off = False
 skip = False
 generative_modifiers = ['ARRAY','BEVEL','BOOLEAN', 'BUILD', 'DECIMATE','EDGE_SPLIT','MASK','MIRROR','MULTIRES','REMESH','SCREW','SKIN','SOLIDIFY','SUBSURF','TRIANGULATE','WELD','WIREFRAME']
 
+class RENDER_OT_RenderEncodedAnimation(bpy.types.Operator):
+    """ By Default there are side effects when using encoded normals and rendering from separate 
+    frame than the animation. This makes sure everything is rendered correctly. Runs frame_current = frame_start and then starts rendering animation
+    """
 
+    bl_label = "Render Animation (With Encoded Normals)"
+    bl_idname = 'normal_encoder.render_animation'
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.render.use_lock_interface
+
+    def execute(self, context):
+        context.scene.frame_current = context.scene.frame_start #Solves a side effect of rigs exploding. Should make this into a BoolProperty instead.
+        bpy.ops.render.render({'dict': "override"}, 'INVOKE_DEFAULT', False, animation=True)
+        return {"FINISHED"}
+        
 class ParticleNormalTransferPanel(bpy.types.Panel):
     bl_label = 'Particle Normals'
     bl_idname = 'MESH_PT_partnorm'
@@ -45,18 +64,14 @@ class ParticleNormalTransferPanel(bpy.types.Panel):
         if context.scene.render.use_lock_interface:
             self.layout.use_property_split = True
             ob = context.object
-
+            #self.layout.prop(ob.data.normal_props, 'strength')
+            #self.layout.prop(ob.data.tension_props, 'bias')
+            #self.layout.prop(ob.data.tension_props, 'spread')
             row = self.layout.row()
-            row.enabled = ob.data.normal_props.enable
             row.prop_search(ob.data.normal_props, 'vcol', ob.data, 'vertex_colors')
             #row.operator('id.mask_refresh',text='',icon='FILE_REFRESH')
-
+            self.layout.prop(ob.data.normal_props, 'always_update')
             row = self.layout.row()
-            row.enabled = ob.data.normal_props.enable
-            row.prop(ob.data.normal_props, 'always_update')
-
-            row = self.layout.row()
-            row.enabled = ob.data.normal_props.enable
             row.operator(NormalUpdateNowOp.bl_idname)
             row.operator(SecretRuaidriOp.bl_idname)
         else:
@@ -68,6 +83,10 @@ def panel_enable_checkbox(self, context):
     if 'vc_normals' not in ob.data.vertex_colors and not ob.data.normal_props.default_vcol_created:
         ob.data.vertex_colors.new(name = 'vc_normals')
         ob.data.normal_props.default_vcol_created = True
+
+def add_render_encoded_normal_animation(self, context):
+    self.layout.operator(RENDER_OT_RenderEncodedAnimation.bl_idname, text="Render Animation With Encoded Normals")
+
 
 
 class NormalUpdateNowOp(bpy.types.Operator):
@@ -128,33 +147,39 @@ class NormalProps(bpy.types.PropertyGroup):
     delayed_drivers: bpy.props.CollectionProperty(type=NormalItem)
     
 
-# from mesh tension addon
-# set rendering flag to True at start of render
+
+# Use as a hook for anytime the rendering stars
 @persistent
-def render_pre(scene):
+def render_start(scene, test):
     global rendering
-    print('\n [!] render_pre frame', bpy.context.scene.frame_current)
+    if not scene.render.use_lock_interface: return
+    print('\n [!] render_start', test)
     rendering = True
 
 
-# unset rendering flag at end of render
+# Use as a hook for anytime the rendering stops
 @persistent
-def render_post(scene):
-    global rendering
-    print(' [!] render_post frame', bpy.context.scene.frame_current)
+def render_end(scene):
+    global rendering, modifiers_off
+    if not scene.render.use_lock_interface: return
     rendering = False
+
+    if modifiers_off:
+        print(' [!] was interrupted while modifiers were off, restoring previous modifiers')
+        objs_list = [obj for obj in bpy.data.objects if obj.type == 'MESH' and obj.data.normal_props.enable]
+        for ob in objs_list:
+            enable_modifiers(ob)
+        modifiers_off = False
+        print(' [!] modifiers restored')
+    
+    print(' [!] render_end')
         
 
 def valid_driver(obj, datapath):
     global generative_modifiers
     if 'modifiers' not in datapath: return False
     path_prop, path_attr = datapath.rsplit(".", 1) # get modifiers["name"]
-    try:
-        modifier = obj.path_resolve(path_prop)
-    except ValueError:
-        print(' [!] Driver referencing modifier that no longer exists')
-        return False
-
+    modifier = obj.path_resolve(path_prop)
     if modifier.type in generative_modifiers and path_attr in ('show_viewport', 'show_render'): return True
     return False
 
@@ -222,62 +247,75 @@ def enable_modifiers(ob):
 
             
 def encode_normals(ob, depsgraph):
-    print(" [-] Encoding normals for ", ob)
-    orig_obj = ob 
-    
-    # get evaluated (modifiers applied) version of obj  
-    eval_obj = orig_obj.evaluated_get(depsgraph)
+    try:
+        print(" [-] Encoding normals for ", ob)
+        orig_obj = ob 
+        # get evaluated (modifiers applied) version of obj  
+        eval_obj = orig_obj.evaluated_get(depsgraph)
 
-    orig_mesh = orig_obj.data
-    eval_mesh = eval_obj.data
+        orig_mesh = orig_obj.data
+        eval_mesh = eval_obj.data
 
-    # save vcol layer to restore
-    restore_vcol_name = orig_mesh.vertex_colors.active
-    orig_mesh.vertex_colors.active = orig_mesh.vertex_colors[orig_mesh.normal_props.vcol]
-    
-    # idk just do it
-    eval_mesh.calc_normals_split()
+        # idk just do it ///  Allows access to  the loops - mal
+        eval_mesh.calc_normals_split()
 
-    for poly in eval_mesh.polygons:
-            for loop_index in poly.loop_indices:
-                normal = eval_mesh.loops[loop_index].normal.copy()
-                #if (self.space == 'WORLD'):
-                normal = eval_obj.matrix_world.to_3x3() @ normal
-                normal.normalize()
+        # Mal:L Remove any possibility of active  changing during vertice selection, so lets  use direct references instead.
+        eval_vertex_att = eval_mesh.vertex_colors[eval_mesh.normal_props.vcol]
+        orig_vertex_att = orig_mesh.vertex_colors[orig_mesh.normal_props.vcol]
 
-                orig_normal = normal.copy()
-  
-                color = (normal * 0.5) + Vector((0.5,) * 3)
-                # shader editor only understands sRGB.
-                # thanks to Bobbe on Blender Community Discord for
-                # pointing me in this direction
-                color = Vector(Color(color).from_scene_linear_to_srgb())
-                color.resize_4d()
-                
-                # Copy to both original and new
-                eval_mesh.vertex_colors.active.data[loop_index].color = color
-                orig_mesh.vertex_colors.active.data[loop_index].color = color
-    
-    print(f" [n] orig object has {len(orig_mesh.polygons)} faces")
-    print(f" [n] eval object has {len(eval_mesh.polygons)} faces")
-    
-    # clean up
-    eval_mesh.free_normals_split()
-    orig_mesh.vertex_colors.active = orig_mesh.vertex_colors[orig_mesh.normal_props.vcol]
+        print("     [d] Going through polygons") #Long operation
+        for poly in eval_mesh.polygons:
+                for loop_index in poly.loop_indices:
+                    normal = eval_mesh.loops[loop_index].normal.copy()
+                    normal = eval_obj.matrix_world.to_3x3() @ normal # @ => dot product
+                    normal.normalize()
+                    color = (normal * 0.5) + Vector((0.5,) * 3)
+                    del normal # this is no longer used so delete for gc and stability later.
 
+                    # shader editor only understands sRGB.
+                    # thanks to Bobbe on Blender Community Discord for
+                    # pointing me in this direction
+                    color = Vector(Color(color).from_scene_linear_to_srgb())
+                    color.resize_4d()
+                    
+                    # Copy to both original and new
+                    eval_vertex_att.data[loop_index].color = color
+                    orig_vertex_att.data[loop_index].color = color
+
+                    del color # this is no longer used so delete for gc and stability later.
+
+        print(f" [n] orig object has {len(orig_mesh.polygons)} faces")
+        print(f" [n] eval object has {len(eval_mesh.polygons)} faces")
+        
+        # clean up
+        print(f" [n] Cleanup")
+        eval_mesh.free_normals_split()
+        del eval_vertex_att
+        del orig_vertex_att
+        
+      #  print(f" [n] Reset Vertex color to original")
+       # orig_mesh.vertex_colors.active = restore_vcol # Set active vertex color back to start.
+    except Exception as e:
+        print("  [w] Error Occurred while pre processing frame. ", e)
+
+    # malactus: We have done anywhere between a 100k or more calculations (Forexample: character of 50 000 vertices?, every thing is passed upto 4 times, so after 
+    # 200 k operations we may need to clear some stuff out. Lets make sure this frame is clear before we move on). After idk 400 frames, 
+    # this could technically add up to over 20 million floating variables until when ever blender does the operation for us...
+    gc.collect() 
+    print(f" [n] Garbage Collection complete")
 
 # pre depsgraph generation on frame change
 @persistent
 def frame_pre(scene):
-    global skip, rendering
-    if skip: return
+    global skip, rendering, modifiers_off
+    if skip or not rendering: return
+    if not bpy.context.scene.render.use_lock_interface: return
             
     # only update on render
-    if not rendering: return
-
+    print(rendering)
     print(' [-] frame_pre frame', bpy.context.scene.frame_current)
     # borrowed from mesh_tension addon
-    
+    modifiers_off = True
     objs_list = [obj for obj in bpy.data.objects if obj.type == 'MESH' and obj.data.normal_props.enable]
     for ob in objs_list:     
         disable_modifiers(ob)
@@ -286,13 +324,13 @@ def frame_pre(scene):
 # post depsgraph generation frame handler
 @persistent
 def frame_post(scene, depsgraph):
-    global rendering, skip
-    if skip: return
+    global rendering, skip, modifiers_off
+    if skip or not rendering: return
+    if not bpy.context.scene.render.use_lock_interface: return
 
     print(' [-] frame_post frame', bpy.context.scene.frame_current)
     
     # Only update on render
-    if not rendering: return False
     
     # Get objects with encode_normal custom prop.
     # Bonus: make encode_normal contain the vertex color layer so we can 
@@ -303,7 +341,7 @@ def frame_post(scene, depsgraph):
     for ob in objs_list:
         encode_normals(ob, depsgraph)
         enable_modifiers(ob)
-
+    modifiers_off = False
     print(' [-] Vertex colors updated on ', objs_list)
         
     # sentharn: don't ask me why this is here
@@ -318,20 +356,14 @@ def frame_post(scene, depsgraph):
     #print('frame_post finished second pass')   
     #skip = False
 
-
-@persistent
-def dg_pre(scene):
-    #objs_list = [obj for obj in bpy.data.objects if obj.type == 'MESH' and obj.data.normal_props.enable and obj.data.normal_props.always_update]
-    pass
-
-
-@persistent
-def dg_post(scene):
-    pass
-
+def uppend(target, handler):
+    if handler in target:
+        target.remove(handler)
+    
+    target.append(handler)
 
 def register():
-    print(' [-] Registering Encode Normals')
+    print(' [-] Registering Encode Normals Plugin')
     
     bpy.utils.register_class(NormalItem)
     bpy.utils.register_class(NormalProps)
@@ -340,45 +372,37 @@ def register():
     bpy.utils.register_class(NormalUpdateNowOp)
     bpy.utils.register_class(SecretRuaidriOp)
     
+    bpy.utils.register_class(RENDER_OT_RenderEncodedAnimation)
+    bpy.types.TOPBAR_MT_render.append(add_render_encoded_normal_animation)
+
     bpy.types.Mesh.normal_props = bpy.props.PointerProperty(type=NormalProps)
     
-    # comment me later lol
-    #bpy.app.handlers.frame_change_pre.clear()
-    #bpy.app.handlers.frame_change_post.clear()
-    #bpy.app.handlers.render_pre.clear()
-    #bpy.app.handlers.render_post.clear()
+    uppend(bpy.app.handlers.render_init, render_start)
+    uppend(bpy.app.handlers.render_complete, render_end)
+    uppend(bpy.app.handlers.render_cancel, render_end) # Must have a cancel hook as complete does not trigger if rendering is cancelled.
     
-    if frame_pre in bpy.app.handlers.frame_change_pre:
-        bpy.app.handlers.frame_change_pre.remove(frame_pre)
-
-    if frame_post in bpy.app.handlers.frame_change_post:
-        bpy.app.handlers.frame_change_pre.remove(frame_post) 
-        
-    if render_pre in bpy.app.handlers.render_pre:
-        bpy.app.handlers.render_pre.remove(frame_pre)
-
-    if render_post in bpy.app.handlers.render_post:
-        bpy.app.handlers.render_post.remove(frame_post) 
+    uppend(bpy.app.handlers.frame_change_pre, frame_pre) 
+    uppend(bpy.app.handlers.frame_change_post, frame_post)
                        
-    bpy.app.handlers.frame_change_pre.append(frame_pre)
-    bpy.app.handlers.frame_change_post.append(frame_post)
-    bpy.app.handlers.render_pre.append(render_pre)
-    bpy.app.handlers.render_post.append(render_post)
 
     
 def unregister():
-    print(' [-] Unregistering Encode Normals...')
-        
+    print(' [-] Unregistering Encode Normals Plugin')
+
+    bpy.app.handlers.render_init.remove(render_start)
+    bpy.app.handlers.render_complete.remove(render_end)
+    bpy.app.handlers.render_cancel.remove(render_end)
+
     bpy.app.handlers.frame_change_pre.remove(frame_pre)
     bpy.app.handlers.frame_change_post.remove(frame_post)
-    bpy.app.handlers.render_pre.remove(render_pre)
-    bpy.app.handlers.render_post.remove(render_post)
 
     del bpy.types.Mesh.normal_props
  
     bpy.utils.unregister_class(SecretRuaidriOp)
     bpy.utils.unregister_class(NormalUpdateNowOp)
 
+    bpy.utils.unregister_class(RENDER_OT_RenderEncodedAnimation)
+    bpy.types.TOPBAR_MT_render.remove(add_render_encoded_normal_animation)
     bpy.utils.unregister_class(ParticleNormalTransferPanel)
     bpy.utils.unregister_class(NormalProps)
     bpy.utils.unregister_class(NormalItem)  
