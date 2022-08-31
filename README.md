@@ -31,6 +31,10 @@ what you make! Feel free to send me a link so I can admire it.
 This addon was heavily inspired by and partially based on Steve Miller's
 [Mesh Tension Addon](https://blenderartists.org/t/revised-mesh-tension-add-on/1239091)
 
+Thanks to these contributors for their improvements and fixes:
+
+* @Menithal (#4) Added critical stability fixes and cleaned up code for maintainability
+
 ## Encoding 
 Vertex colors are stored as RGB values from [0, 1]. Normals are stored as
 [-1, 1]. The plugin will map store the normals as 
@@ -55,7 +59,7 @@ and then subtract `1.0` by using Vector Math nodes in the shader editor
 3. Under Mesh properties, enable `Particles Normals` via the checkbox. This will create the vc_normals vertex color group if it does not exist yet.
 4. Set up the shader using the node group above to use your encoded normals instead of generated normals. Consider doing the same for the body shader (see [Limitations](#limitations))
 5. Click `Encode Normals` to manually encode normals for the current frame while doing viewport work.
-6. The addon will automatically encode normals every frame for you during render
+6. The addon will automatically encode normals every frame for you during render. Use the `Render Animation with Encoded Normals` menu in the UI for consistent results.
 7. Click the `Ru Button`, which literally does nothing but looks cool
 
 ![Shader image](assets/panel1.jpg)
