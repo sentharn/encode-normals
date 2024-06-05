@@ -1,7 +1,19 @@
+# This addon is NO LONGER SUPPORTED
+
+For Blender 4.x, you should be using Geometry Nodes to transfer normal attributes from a Mesh object to a geometry-node based fur system.
+
+This addon is broken in weird ways. It may mess with motion blur. It may crash blender. It may lead to hard-to-debug issues if you enable this addon and forget about it. 
+
+### Do Not Contact For Support
+**This addon is not supported by me or by Ruaidri. Please do not contact either of us for support for this addon. This addon will not be maintained by either of us.**
+
 # encode-normals
 ## A Blender addon to copy mesh normals to hair via vertex colors
 
 _As seen on TV!_
+
+
+
 
 ![Stylized Fur Image](assets/ru_comparison_small.jpg)
 *image courtesy of [ruaidri @ furaffinity](https://furaffinity.net/user/ruaidri)*
